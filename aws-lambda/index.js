@@ -1,5 +1,5 @@
 const ffmpeg = require('fluent-ffmpeg');
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
@@ -15,8 +15,8 @@ exports.handler = async (event) => {
 
   try {
     const {
-      videoBase64,
-      videoUrl,
+      s3Key,
+      s3Bucket,
       text,
       position = 'bottom',
       fontSize = 40,
@@ -25,30 +25,21 @@ exports.handler = async (event) => {
     } = JSON.parse(event.body || '{}');
 
     // Validate inputs
-    if ((!videoBase64 && !videoUrl) || !text) {
+    if (!s3Key || !text) {
       return {
         statusCode: 400,
         body: JSON.stringify({
           success: false,
-          error: 'Missing required parameters: (videoBase64 or videoUrl) and text'
+          error: 'Missing required parameters: s3Key and text'
         })
       };
     }
 
-    console.log('📥 Processing video input...');
+    console.log('📥 Downloading video from S3...');
 
-    let inputPath;
-    if (videoBase64) {
-      // Handle base64 video data
-      console.log('📥 Decoding base64 video data...');
-      inputPath = '/tmp/input-video.mp4';
-      const videoBuffer = Buffer.from(videoBase64, 'base64');
-      fs.writeFileSync(inputPath, videoBuffer);
-    } else {
-      // Handle video URL (fallback)
-      console.log('📥 Downloading video from URL...');
-      inputPath = await downloadFile(videoUrl, '/tmp/input-video.mp4');
-    }
+    // Download video from S3
+    const inputPath = '/tmp/input-video.mp4';
+    await downloadFromS3(s3Bucket || process.env.S3_BUCKET || 'jackfrits-video-bucket', s3Key, inputPath);
 
     console.log('✅ Video downloaded successfully');
     console.log('🎭 Starting text overlay...');
@@ -58,13 +49,13 @@ exports.handler = async (event) => {
     await addTextOverlay(inputPath, outputPath, text, position, fontSize, fontColor);
 
     console.log('✅ Text overlay completed');
-    console.log('📤 Encoding processed video...');
+    console.log('📤 Uploading processed video to S3...');
 
-    // Read the processed video file and convert to base64
-    const processedVideoBuffer = fs.readFileSync(outputPath);
-    const processedVideoBase64 = processedVideoBuffer.toString('base64');
+    // Upload processed video to S3
+    const processedS3Key = `processed/${Date.now()}-${filename}`;
+    const s3UploadResult = await uploadToS3(outputPath, processedS3Key);
 
-    console.log('✅ Video encoding completed');
+    console.log('✅ Video uploaded to S3:', processedS3Key);
 
     // Cleanup temp files
     cleanupFiles([inputPath, outputPath]);
@@ -73,7 +64,8 @@ exports.handler = async (event) => {
       statusCode: 200,
       body: JSON.stringify({
         success: true,
-        videoBase64: processedVideoBase64,
+        s3Key: processedS3Key,
+        s3Url: s3UploadResult.Location,
         message: 'Text overlay added successfully'
       })
     };
@@ -92,29 +84,37 @@ exports.handler = async (event) => {
 };
 
 /**
- * Download file from URL to local path
+ * Download file from S3 to local path
  */
-async function downloadFile(url, outputPath) {
-  return new Promise((resolve, reject) => {
-    console.log(`📥 Downloading ${url} to ${outputPath}`);
+async function downloadFromS3(bucket, key, outputPath) {
+  console.log(`📥 Downloading s3://${bucket}/${key} to ${outputPath}`);
 
-    const file = fs.createWriteStream(outputPath);
+  const command = new GetObjectCommand({
+    Bucket: bucket,
+    Key: key,
+  });
 
-    https.get(url, (response) => {
-      response.pipe(file);
+  try {
+    const response = await s3.send(command);
+    const stream = response.Body;
 
-      file.on('finish', () => {
-        file.close();
+    return new Promise((resolve, reject) => {
+      const writeStream = fs.createWriteStream(outputPath);
+
+      stream.pipe(writeStream);
+
+      writeStream.on('finish', () => {
         console.log(`✅ Downloaded ${outputPath}`);
         resolve(outputPath);
       });
 
-      file.on('error', (err) => {
-        fs.unlink(outputPath, () => {}); // Clean up on error
-        reject(err);
-      });
-    }).on('error', reject);
-  });
+      writeStream.on('error', reject);
+      stream.on('error', reject);
+    });
+  } catch (error) {
+    console.error('S3 download error:', error);
+    throw error;
+  }
 }
 
 /**
@@ -177,9 +177,10 @@ function calculateTextPosition(position) {
  */
 async function uploadToS3(filePath, s3Key) {
   const fileContent = fs.readFileSync(filePath);
+  const bucketName = process.env.S3_BUCKET || 'jackfrits-video-bucket';
 
   const command = new PutObjectCommand({
-    Bucket: process.env.S3_BUCKET || 'your-video-bucket',
+    Bucket: bucketName,
     Key: s3Key,
     Body: fileContent,
     ContentType: 'video/mp4'
@@ -187,7 +188,7 @@ async function uploadToS3(filePath, s3Key) {
 
   const result = await s3.send(command);
   return {
-    Location: `https://${process.env.S3_BUCKET || 'your-video-bucket'}.s3.amazonaws.com/${s3Key}`,
+    Location: `https://${bucketName}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${s3Key}`,
     ...result
   };
 }

@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
-import os from 'os';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+
+// Configure S3 client
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION || 'us-east-1',
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+  },
+});
+
+const BUCKET_NAME = process.env.S3_BUCKET || 'jackfrits-video-bucket';
 
 export async function POST(request: NextRequest) {
   console.log('📤 Upload video route called');
@@ -18,7 +26,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file size (100MB limit)
+    // Keep 100MB limit for reasonable processing times
     if (file.size > 100 * 1024 * 1024) {
       return NextResponse.json(
         { error: 'File size must be under 100MB' },
@@ -34,26 +42,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Generate unique filename
+    // Generate unique S3 key
     const timestamp = Date.now();
-    const filename = `${timestamp}-${file.name}`;
+    const s3Key = `uploads/${timestamp}-${file.name}`;
 
-    // Use temp directory for Vercel compatibility
-    const tempDir = os.tmpdir();
-    const uploadsDir = path.join(tempDir, 'uploads');
-    if (!existsSync(uploadsDir)) {
-      await mkdir(uploadsDir, { recursive: true });
-    }
-
-    // Save file in temp directory
-    const filePath = path.join(uploadsDir, filename);
+    // Upload to S3
     const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(filePath, buffer);
+
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: s3Key,
+      Body: buffer,
+      ContentType: file.type,
+    });
+
+    await s3Client.send(command);
+
+    console.log(`📤 Uploaded to S3: ${s3Key} (${(buffer.length / 1024 / 1024).toFixed(2)}MB)`);
 
     return NextResponse.json({
       success: true,
-      filename,
-      localPath: filePath,
+      s3Key,
+      s3Url: `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION || 'us-east-1'}.amazonaws.com/${s3Key}`,
+      filename: file.name,
       size: buffer.length
     });
 

@@ -16,35 +16,22 @@ const lambdaClient = new LambdaClient({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { filename, localPath, text, position = 'bottom', fontColor = 'black' } = body;
+    const { s3Key, filename, text, position = 'bottom', fontColor = 'black' } = body;
 
-    if (!localPath || !text) {
+    if (!s3Key || !text) {
       return NextResponse.json(
-        { error: 'localPath and text are required' },
+        { error: 's3Key and text are required' },
         { status: 400 }
       );
     }
 
     console.log('🚀 Processing video with Lambda...');
 
-    // Read the video file from temp location
-    const videoBuffer = await readFile(localPath);
-
-    // Check file size (Lambda payload limit is 6MB, base64 adds ~33% overhead)
-    if (videoBuffer.length > 4 * 1024 * 1024) { // 4MB limit for base64
-      return NextResponse.json(
-        { error: 'Video file too large for processing. Please use a smaller file (under 4MB).' },
-        { status: 400 }
-      );
-    }
-
-    const videoBase64 = videoBuffer.toString('base64');
-    console.log(`Video file size: ${(videoBuffer.length / 1024 / 1024).toFixed(2)}MB, Base64 size: ${(videoBase64.length / 1024 / 1024).toFixed(2)}MB`);
-
-    // Prepare Lambda payload with base64 video data
+    // Prepare Lambda payload with S3 information
     const payload = {
       body: JSON.stringify({
-        videoBase64,
+        s3Key,
+        s3Bucket: process.env.S3_BUCKET || 'jackfrits-video-bucket',
         text,
         position,
         fontColor,
@@ -86,24 +73,19 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Lambda processing completed successfully');
 
-    // Return the processed video as base64 for download
-    if (result.videoBase64) {
-      const processedBuffer = Buffer.from(result.videoBase64, 'base64');
-      console.log(`📹 Processed video ready: ${filename} (${(processedBuffer.length / 1024 / 1024).toFixed(2)}MB)`);
+    // Return the S3 URL for the processed video
+    if (result.s3Url) {
+      console.log(`📹 Processed video ready: ${result.s3Key}`);
 
       return NextResponse.json({
         success: true,
-        videoBase64: result.videoBase64,
+        s3Url: result.s3Url,
+        s3Key: result.s3Key,
         filename: `processed-${filename}`,
         message: 'Text overlay added successfully',
       });
     } else {
-      // Fallback to S3 URL if available
-      return NextResponse.json({
-        success: true,
-        videoUrl: result.videoUrl,
-        message: 'Text overlay added successfully',
-      });
+      throw new Error('No S3 URL returned from Lambda');
     }
 
   } catch (error) {

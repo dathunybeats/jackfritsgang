@@ -65,8 +65,8 @@ export default function VideoUpload({ onVideoProcessed, onProcessingChange }: Vi
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
+          s3Key: uploadResult.s3Key,
           filename: uploadResult.filename,
-          localPath: uploadResult.localPath,
           text,
           position,
           fontColor
@@ -80,18 +80,11 @@ export default function VideoUpload({ onVideoProcessed, onProcessingChange }: Vi
       const result = await processResponse.json();
       console.log('Process response:', result);
 
-      if (result.success && result.videoBase64) {
-        // Convert base64 to blob URL for display
-        const binaryString = atob(result.videoBase64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const blob = new Blob([bytes], { type: 'video/mp4' });
-        const blobUrl = URL.createObjectURL(blob);
-        onVideoProcessed(blobUrl);
+      if (result.success && result.s3Url) {
+        // Use S3 URL directly for video display
+        onVideoProcessed(result.s3Url);
       } else {
-        throw new Error(result.error || 'Failed to get processed video');
+        throw new Error(result.error || 'Failed to get processed video URL');
       }
 
     } catch (error) {
