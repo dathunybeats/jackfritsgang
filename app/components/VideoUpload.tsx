@@ -25,6 +25,63 @@ export default function VideoUpload({ onVideoProcessed, onProcessingChange }: Vi
     }
   }, []);
 
+  // Direct upload for small files (<4MB)
+  const uploadDirectly = async (file: File) => {
+    const formData = new FormData();
+    formData.append('video', file);
+
+    const response = await fetch('/api/upload-video', {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to upload video');
+    }
+
+    return await response.json();
+  };
+
+  // Presigned URL upload for large files (>4MB)
+  const uploadWithPresignedUrl = async (file: File) => {
+    // Get presigned URL
+    const urlResponse = await fetch('/api/get-upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type
+      })
+    });
+
+    if (!urlResponse.ok) {
+      throw new Error('Failed to get upload URL');
+    }
+
+    const { uploadUrl, s3Key, s3Url } = await urlResponse.json();
+
+    // Upload directly to S3
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: file,
+      headers: {
+        'Content-Type': file.type
+      }
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error('Failed to upload to S3');
+    }
+
+    return {
+      success: true,
+      s3Key,
+      s3Url,
+      filename: file.name,
+      size: file.size
+    };
+  };
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: {
@@ -43,20 +100,19 @@ export default function VideoUpload({ onVideoProcessed, onProcessingChange }: Vi
     try {
       onProcessingChange(true);
 
-      // First upload video to a temporary URL (you'll need to implement this)
-      const formData = new FormData();
-      formData.append('video', uploadedFile);
+      // Check file size and use appropriate upload method
+      const fileSizeMB = uploadedFile.size / (1024 * 1024);
+      let uploadResult;
 
-      const uploadResponse = await fetch('/api/upload-video', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error('Failed to upload video');
+      if (fileSizeMB > 4) {
+        // Use presigned URL for large files (>4MB)
+        console.log(`Large file detected (${fileSizeMB.toFixed(2)}MB), using presigned URL`);
+        uploadResult = await uploadWithPresignedUrl(uploadedFile);
+      } else {
+        // Use direct upload for small files (<4MB)
+        console.log(`Small file (${fileSizeMB.toFixed(2)}MB), using direct upload`);
+        uploadResult = await uploadDirectly(uploadedFile);
       }
-
-      const uploadResult = await uploadResponse.json();
 
       // Then process with Lambda
       const processResponse = await fetch('/api/process-video', {
