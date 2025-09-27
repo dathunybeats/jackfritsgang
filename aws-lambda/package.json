@@ -1,0 +1,10 @@
+{
+  "name": "video-text-overlay-lambda",
+  "version": "1.0.0",
+  "description": "AWS Lambda function to add text overlays to videos using FFmpeg",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.894.0",
+    "fluent-ffmpeg": "^2.1.3"
+  }
+}
