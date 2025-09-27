@@ -1,0 +1,15 @@
+{
+  "CORSRules": [
+    {
+      "AllowedHeaders": ["*"],
+      "AllowedMethods": ["GET", "PUT", "POST", "HEAD"],
+      "AllowedOrigins": [
+        "http://localhost:3000",
+        "https://jackfritsgang.vercel.app",
+        "https://jackfritsgang-*.vercel.app"
+      ],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3000
+    }
+  ]
+}
