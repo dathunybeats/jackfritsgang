@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
+import os from 'os';
 
 export async function POST(request: NextRequest) {
   console.log('📤 Upload video route called');
@@ -37,25 +38,23 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const filename = `${timestamp}-${file.name}`;
 
-    // Create uploads directory if it doesn't exist
-    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    // Use temp directory for Vercel compatibility
+    const tempDir = os.tmpdir();
+    const uploadsDir = path.join(tempDir, 'uploads');
     if (!existsSync(uploadsDir)) {
       await mkdir(uploadsDir, { recursive: true });
     }
 
-    // Save file locally
+    // Save file in temp directory
     const filePath = path.join(uploadsDir, filename);
     const buffer = Buffer.from(await file.arrayBuffer());
     await writeFile(filePath, buffer);
 
-    // Generate local URL for serving the file
-    const videoUrl = `/uploads/${filename}`;
-
     return NextResponse.json({
       success: true,
-      videoUrl,
       filename,
       localPath: filePath,
+      size: buffer.length
     });
 
   } catch (error) {

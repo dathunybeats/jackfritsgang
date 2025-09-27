@@ -56,7 +56,7 @@ export default function VideoUpload({ onVideoProcessed, onProcessingChange }: Vi
         throw new Error('Failed to upload video');
       }
 
-      const { videoUrl } = await uploadResponse.json();
+      const uploadResult = await uploadResponse.json();
 
       // Then process with Lambda
       const processResponse = await fetch('/api/process-video', {
@@ -65,7 +65,8 @@ export default function VideoUpload({ onVideoProcessed, onProcessingChange }: Vi
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          videoUrl,
+          filename: uploadResult.filename,
+          localPath: uploadResult.localPath,
           text,
           position,
           fontColor
@@ -79,10 +80,18 @@ export default function VideoUpload({ onVideoProcessed, onProcessingChange }: Vi
       const result = await processResponse.json();
       console.log('Process response:', result);
 
-      if (result.success && result.videoUrl) {
-        onVideoProcessed(result.videoUrl);
+      if (result.success && result.videoBase64) {
+        // Convert base64 to blob URL for display
+        const binaryString = atob(result.videoBase64);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: 'video/mp4' });
+        const blobUrl = URL.createObjectURL(blob);
+        onVideoProcessed(blobUrl);
       } else {
-        throw new Error(result.error || 'Failed to get processed video URL');
+        throw new Error(result.error || 'Failed to get processed video');
       }
 
     } catch (error) {

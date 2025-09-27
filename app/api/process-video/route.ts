@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
+import os from 'os';
 
 // Configure Lambda client
 const lambdaClient = new LambdaClient({
@@ -15,21 +16,19 @@ const lambdaClient = new LambdaClient({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { videoUrl, text, position = 'bottom', fontColor = 'black' } = body;
+    const { filename, localPath, text, position = 'bottom', fontColor = 'black' } = body;
 
-    if (!videoUrl || !text) {
+    if (!localPath || !text) {
       return NextResponse.json(
-        { error: 'videoUrl and text are required' },
+        { error: 'localPath and text are required' },
         { status: 400 }
       );
     }
 
-    console.log('🚀 Processing local video with Lambda...');
+    console.log('🚀 Processing video with Lambda...');
 
-    // Read the local video file
-    const filename = videoUrl.replace('/uploads/', '');
-    const filePath = path.join(process.cwd(), 'public', 'uploads', filename);
-    const videoBuffer = await readFile(filePath);
+    // Read the video file from temp location
+    const videoBuffer = await readFile(localPath);
 
     // Check file size (Lambda payload limit is 6MB, base64 adds ~33% overhead)
     if (videoBuffer.length > 4 * 1024 * 1024) { // 4MB limit for base64
@@ -87,18 +86,15 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Lambda processing completed successfully');
 
-    // Save the processed video locally
+    // Return the processed video as base64 for download
     if (result.videoBase64) {
-      const processedFilename = `processed-${Date.now()}-${filename}`;
-      const processedPath = path.join(process.cwd(), 'public', 'uploads', processedFilename);
       const processedBuffer = Buffer.from(result.videoBase64, 'base64');
-      await writeFile(processedPath, processedBuffer);
-
-      console.log(`📹 Processed video saved: ${processedFilename} (${(processedBuffer.length / 1024 / 1024).toFixed(2)}MB)`);
+      console.log(`📹 Processed video ready: ${filename} (${(processedBuffer.length / 1024 / 1024).toFixed(2)}MB)`);
 
       return NextResponse.json({
         success: true,
-        videoUrl: `/uploads/${processedFilename}`,
+        videoBase64: result.videoBase64,
+        filename: `processed-${filename}`,
         message: 'Text overlay added successfully',
       });
     } else {
