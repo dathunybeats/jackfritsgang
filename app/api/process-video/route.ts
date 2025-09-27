@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const payload = {
       body: JSON.stringify({
         s3Key,
-        s3Bucket: process.env.S3_BUCKET || 'jackfrits-video-bucket',
+        s3Bucket: process.env.S3_BUCKET || 'jackfrits-video-bucket-12198',
         text,
         position,
         fontColor,

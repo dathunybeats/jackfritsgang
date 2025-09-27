@@ -10,7 +10,7 @@ const s3Client = new S3Client({
   },
 });
 
-const BUCKET_NAME = process.env.S3_BUCKET || 'jackfrits-video-bucket';
+const BUCKET_NAME = process.env.S3_BUCKET || 'jackfrits-video-bucket-12198';
 
 export async function POST(request: NextRequest) {
   console.log('📤 Upload video route called');
